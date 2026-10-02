@@ -1,116 +1,70 @@
 var US_BUILD = "0.1.0";
-var US_LOG = [];
-var US_MAX_LOG = 100;
+var US_LOG_BUFFER = [];
+var US_MAX_LOG = 150;
 
-function logPanel(message) {
-  if (typeof console !== "undefined") {
-    console.log(message);
-  }
-  US_LOG.push({
-    time: new Date().toLocaleTimeString(),
-    msg: message
-  });
-  if (US_LOG.length > US_MAX_LOG) {
-    US_LOG.shift();
-  }
+function log_msg(text) {
+  var now = new Date();
+  var time = now.getHours() + ":" + (now.getMinutes() < 10 ? "0" : "") + now.getMinutes() + ":" + (now.getSeconds() < 10 ? "0" : "") + now.getSeconds();
+  US_LOG_BUFFER.push(time + " | " + text);
+  if (US_LOG_BUFFER.length > US_MAX_LOG) US_LOG_BUFFER.shift();
+  if (typeof console !== "undefined") console.log(text);
 }
 
-function safeParseJSON(text) {
+function safe_json_parse(text) {
   try {
     return JSON.parse(text);
   } catch (e) {
-    logPanel("JSON parse error: " + e.message + " for: " + text.substring(0, 100));
+    log_msg("JSON error: " + e.message);
     return null;
   }
 }
 
-function call(fn, args, showStatus) {
-  if (typeof showStatus === "undefined") showStatus = true;
-  
-  var payload = {
-    fn: fn,
-    args: args || {}
-  };
-
-  var out = "";
-  var transportError = false;
+function call_host(fn, args) {
+  var payload = {fn: fn, args: args || {}};
+  var result = "";
 
   try {
-    out = window.__adobe_cep__.evalScript("US_dispatch(" + JSON.stringify(payload) + ")");
+    result = window.__adobe_cep__.evalScript("host_dispatch(" + JSON.stringify(payload) + ")");
   } catch (e) {
-    transportError = true;
-    logPanel("CS transport error: " + e.message);
+    log_msg("Bridge error: " + e.message);
+    return {ok: false, error: "Bridge failed"};
   }
 
-  if (transportError || !out || out === "undefined" || out === "null") {
-    var errorMsg = transportError ? "Bridge transport failed" : "No host response";
-    logPanel("Host error: " + errorMsg);
-    if (showStatus) setStatus(errorMsg, "error");
-    return { ok: false, error: errorMsg };
+  if (!result || result === "undefined") {
+    log_msg("No response from host");
+    return {ok: false, error: "No host response"};
   }
 
-  var parsed = safeParseJSON(out);
+  var parsed = safe_json_parse(result);
   if (!parsed) {
-    logPanel("Invalid JSON from host");
-    if (showStatus) setStatus("Invalid response from host", "error");
-    return { ok: false, error: "Invalid JSON from host" };
-  }
-
-  if (!parsed.ok && parsed.error) {
-    logPanel("Host error: " + parsed.error);
-    if (showStatus) setStatus(parsed.error, "error");
+    log_msg("Invalid JSON from host");
+    return {ok: false, error: "Invalid response"};
   }
 
   return parsed;
 }
 
-function pingHost() {
-  return call("ping", {}, false);
+function status_text(msg, kind) {
+  var el = document.getElementById("statusText");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "status-" + (kind || "info");
+  log_msg(msg);
 }
 
-function checkBuild() {
-  var result = pingHost();
-  var banner = document.getElementById("staleBanner");
-  var buildText = document.getElementById("buildText");
+function get_log() {
+  return US_LOG_BUFFER.join("\n");
+}
 
-  if (result && result.ok && result.payload && result.payload.build) {
-    if (buildText) {
-      buildText.textContent = "build " + result.payload.build;
+function init_panel() {
+  var res = call_host("ping", {}, false);
+  if (res && res.ok && res.payload && res.payload.build) {
+    var buildEl = document.getElementById("buildText");
+    if (buildEl) buildEl.textContent = "build " + res.payload.build;
+    if (res.payload.build !== US_BUILD) {
+      var banner = document.getElementById("staleBanner");
+      if (banner) banner.style.display = "block";
+      log_msg("WARNING: Build mismatch - host: " + res.payload.build + ", panel: " + US_BUILD);
     }
-
-    if (result.payload.build !== US_BUILD) {
-      if (banner) {
-        banner.classList.remove("hidden");
-      }
-      logPanel("WARNING: Build mismatch. Host: " + result.payload.build + " Panel: " + US_BUILD);
-      return false;
-    }
   }
-
-  if (banner) {
-    banner.classList.add("hidden");
-  }
-
-  return true;
-}
-
-function setStatus(text, kind) {
-  var node = document.getElementById("statusText");
-  if (!node) return;
-  node.textContent = text;
-  if (kind === "error") {
-    node.style.color = "#d65a5a";
-  } else if (kind === "success") {
-    node.style.color = "#5dbd7e";
-  } else if (kind === "warning") {
-    node.style.color = "#d7a63c";
-  } else {
-    node.style.color = "#b8b8b8";
-  }
-}
-
-function getLog() {
-  return US_LOG.map(function(entry) {
-    return entry.time + " | " + entry.msg;
-  }).join("\n");
 }

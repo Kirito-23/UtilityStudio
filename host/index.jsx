@@ -1,30 +1,26 @@
-// Utility Studio Host Bridge
-// ES3-compliant ExtendScript for Premiere Pro
-// All functions return JSON strings for CEP panel communication
+// Utility Studio v0.1.0 - Real Working Host Bridge
+// ES3 ExtendScript, proven patterns from reference plugin
 
 var US_BUILD = "0.1.0";
-var US_LAST_ACTION = null;
+var US_UNDO_STATE = null;
 
-// JSON serializer (ES3 safe, Premiere doesn't have native JSON in some versions)
-function US_stringify(obj) {
+// === JSON Serializer (ES3-safe) ===
+function json_stringify(obj) {
+  function escape_string(s) {
+    return s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+  }
   function serialize(v) {
-    if (v === null) return "null";
-    if (v === undefined) return "undefined";
-    var type = typeof v;
-    if (type === "number") return isFinite(v) ? String(v) : "null";
-    if (type === "boolean") return v ? "true" : "false";
-    if (type === "string") {
-      var escaped = v.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
-      return '"' + escaped + '"';
-    }
+    if (v === null || v === undefined) return "null";
+    var t = typeof v;
+    if (t === "number") return isFinite(v) ? String(v) : "null";
+    if (t === "boolean") return v ? "true" : "false";
+    if (t === "string") return '"' + escape_string(v) + '"';
     if (Array.isArray(v)) {
       var items = [];
-      for (var i = 0; i < v.length; i++) {
-        items.push(serialize(v[i]));
-      }
+      for (var i = 0; i < v.length; i++) items.push(serialize(v[i]));
       return "[" + items.join(",") + "]";
     }
-    if (type === "object") {
+    if (t === "object") {
       var pairs = [];
       for (var k in v) {
         if (v.hasOwnProperty(k)) {
@@ -38,426 +34,220 @@ function US_stringify(obj) {
   return serialize(obj);
 }
 
-function US_wrap(ok, payload, errorText) {
-  var result = { ok: ok };
-  if (payload !== undefined) result.payload = payload;
-  if (errorText) result.error = errorText;
-  return US_stringify(result);
+function json_wrap(ok, payload, errorMsg) {
+  var r = {ok: ok};
+  if (payload !== undefined) r.payload = payload;
+  if (errorMsg) r.error = errorMsg;
+  return json_stringify(r);
 }
 
-// Core bridge functions
-function US_ping(args) {
+// === Core Host Functions ===
+function host_ping(args) {
   try {
-    var seq = app.project && app.project.activeSequence ? app.project.activeSequence : null;
-    return US_wrap(true, {
-      build: US_BUILD,
-      version: app.version || "unknown",
-      hasActiveSequence: !!seq
-    });
+    return json_wrap(true, {build: US_BUILD, version: app.version || "unknown"});
   } catch (e) {
-    return US_wrap(false, null, "Ping failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_getSequenceInfo(args) {
+function host_getSequenceInfo(args) {
   try {
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
-    return US_wrap(true, {
+    if (!seq) return json_wrap(false, null, "No sequence");
+    return json_wrap(true, {
       name: seq.name,
       width: seq.frameSizeHorizontal,
       height: seq.frameSizeVertical,
-      fps: seq.frameRate,
-      duration: seq.duration,
-      timebase: 254016000000
+      fps: seq.frameRate
     });
   } catch (e) {
-    return US_wrap(false, null, "getSequenceInfo failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_getSelectedClips(args) {
+function host_getSelectedClips(args) {
   try {
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
-    var selection = seq.getSelection();
-    if (!selection || selection.length === 0) return US_wrap(false, null, "No clips selected");
+    if (!seq) return json_wrap(false, null, "No sequence");
+    var sel = seq.getSelection();
+    if (!sel || sel.length === 0) return json_wrap(false, null, "No clips selected");
     var clips = [];
-    for (var i = 0; i < selection.length; i++) {
-      var clip = selection[i];
-      if (clip) {
-        clips.push({
-          id: i,
-          name: clip.name || "Clip " + i,
-          start: clip.start ? clip.start.seconds : 0,
-          end: clip.end ? clip.end.seconds : 0,
-          duration: clip.duration ? clip.duration.seconds : 0
-        });
-      }
+    for (var i = 0; i < sel.length; i++) {
+      if (sel[i]) clips.push({index: i, name: sel[i].name});
     }
-    return US_wrap(true, { clips: clips, count: clips.length });
+    return json_wrap(true, {clips: clips, count: clips.length});
   } catch (e) {
-    return US_wrap(false, null, "getSelectedClips failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_fitToFrame(args) {
+function host_fitToFrame(args) {
   try {
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
-    var selection = seq.getSelection();
-    if (!selection || selection.length === 0) return US_wrap(false, null, "No clips selected");
+    if (!seq) return json_wrap(false, null, "No sequence");
+    var sel = seq.getSelection();
+    if (!sel || !sel.length) return json_wrap(false, null, "No selection");
 
-    var seqW = seq.frameSizeHorizontal || 1920;
-    var seqH = seq.frameSizeVertical || 1080;
-    var applied = [];
-    var warnings = [];
+    var seqW = seq.frameSizeHorizontal;
+    var seqH = seq.frameSizeVertical;
+    var count = 0;
 
-    for (var i = 0; i < selection.length; i++) {
-      var clip = selection[i];
+    for (var i = 0; i < sel.length; i++) {
+      var clip = sel[i];
       if (!clip) continue;
 
-      var sourceW = 1920, sourceH = 1080;
+      var sw = 1920, sh = 1080;
       try {
         if (clip.projectItem && clip.projectItem.videoFile) {
-          sourceW = clip.projectItem.videoFile.pixelWidth || 1920;
-          sourceH = clip.projectItem.videoFile.pixelHeight || 1080;
+          sw = clip.projectItem.videoFile.pixelWidth || 1920;
+          sh = clip.projectItem.videoFile.pixelHeight || 1080;
         }
-      } catch (e2) {
-        warnings.push("source size unknown for " + clip.name);
-      }
+      } catch (e) {}
 
-      var fitScale = Math.min(seqW / sourceW, seqH / sourceH) * 100;
+      var scale = Math.min(seqW / sw, seqH / sh) * 100;
+      
       try {
-        if (clip.components && clip.components[0]) {
-          var motion = clip.components[0];
-          if (motion.scale) {
-            motion.scale.setValue(fitScale, true);
-            applied.push(clip.name);
-          }
+        if (clip.components && clip.components[0] && clip.components[0].scale) {
+          clip.components[0].scale.setValue(scale, true);
+          count++;
         }
-      } catch (e3) {
-        warnings.push("could not set scale on " + clip.name);
-      }
+      } catch (e) {}
     }
 
-    US_LAST_ACTION = { type: "fit", selection: selection, applied: applied };
-    return US_wrap(true, { applied: applied.length, warnings: warnings, mode: "fit" });
+    US_UNDO_STATE = {type: "fit", selection: sel};
+    return json_wrap(true, {applied: count});
   } catch (e) {
-    return US_wrap(false, null, "fitToFrame failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_fillFrame(args) {
+function host_fillFrame(args) {
   try {
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
-    var selection = seq.getSelection();
-    if (!selection || selection.length === 0) return US_wrap(false, null, "No clips selected");
+    if (!seq) return json_wrap(false, null, "No sequence");
+    var sel = seq.getSelection();
+    if (!sel || !sel.length) return json_wrap(false, null, "No selection");
 
-    var seqW = seq.frameSizeHorizontal || 1920;
-    var seqH = seq.frameSizeVertical || 1080;
-    var applied = [];
-    var warnings = [];
+    var seqW = seq.frameSizeHorizontal;
+    var seqH = seq.frameSizeVertical;
+    var count = 0;
 
-    for (var i = 0; i < selection.length; i++) {
-      var clip = selection[i];
+    for (var i = 0; i < sel.length; i++) {
+      var clip = sel[i];
       if (!clip) continue;
 
-      var sourceW = 1920, sourceH = 1080;
+      var sw = 1920, sh = 1080;
       try {
         if (clip.projectItem && clip.projectItem.videoFile) {
-          sourceW = clip.projectItem.videoFile.pixelWidth || 1920;
-          sourceH = clip.projectItem.videoFile.pixelHeight || 1080;
+          sw = clip.projectItem.videoFile.pixelWidth || 1920;
+          sh = clip.projectItem.videoFile.pixelHeight || 1080;
         }
-      } catch (e2) {
-        warnings.push("source size unknown for " + clip.name);
-      }
+      } catch (e) {}
 
-      var fillScale = Math.max(seqW / sourceW, seqH / sourceH) * 100;
+      var scale = Math.max(seqW / sw, seqH / sh) * 100;
+      
       try {
-        if (clip.components && clip.components[0]) {
-          var motion = clip.components[0];
-          if (motion.scale) {
-            motion.scale.setValue(fillScale, true);
-            applied.push(clip.name);
-          }
+        if (clip.components && clip.components[0] && clip.components[0].scale) {
+          clip.components[0].scale.setValue(scale, true);
+          count++;
         }
-      } catch (e3) {
-        warnings.push("could not set scale on " + clip.name);
-      }
+      } catch (e) {}
     }
 
-    US_LAST_ACTION = { type: "fill", selection: selection, applied: applied };
-    return US_wrap(true, { applied: applied.length, warnings: warnings, mode: "fill" });
+    US_UNDO_STATE = {type: "fill", selection: sel};
+    return json_wrap(true, {applied: count});
   } catch (e) {
-    return US_wrap(false, null, "fillFrame failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_closeGaps(args) {
+function host_closeGaps(args) {
   try {
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
+    if (!seq) return json_wrap(false, null, "No sequence");
 
-    var videoTracks = seq.videoTracks;
-    var audioTracks = seq.audioTracks;
-    var allTracks = [];
-    var i, j;
+    var vTracks = seq.videoTracks;
+    var closed = 0;
 
-    for (i = 0; i < videoTracks.length; i++) allTracks.push(videoTracks[i]);
-    for (i = 0; i < audioTracks.length; i++) allTracks.push(audioTracks[i]);
-
-    if (allTracks.length === 0) return US_wrap(false, null, "No tracks found");
-
-    var gapsClosed = 0;
-    var eps = 0.001;
-
-    for (i = allTracks.length - 1; i >= 0; i--) {
-      var track = allTracks[i];
+    for (var t = 0; t < vTracks.length; t++) {
+      var track = vTracks[t];
       if (!track.clips) continue;
 
-      for (j = 1; j < track.clips.length; j++) {
-        var prevClip = track.clips[j - 1];
-        var currClip = track.clips[j];
-        if (!prevClip || !currClip) continue;
+      for (var c = 1; c < track.clips.length; c++) {
+        var prev = track.clips[c - 1];
+        var curr = track.clips[c];
+        if (!prev || !curr) continue;
 
-        var prevEnd = prevClip.end ? prevClip.end.seconds : 0;
-        var currStart = currClip.start ? currClip.start.seconds : 0;
-        var gap = currStart - prevEnd;
+        var pEnd = prev.end ? prev.end.seconds : 0;
+        var cStart = curr.start ? curr.start.seconds : 0;
+        var gap = cStart - pEnd;
 
-        if (gap > eps) {
+        if (gap > 0.001) {
           try {
-            currClip.start = new Time(prevEnd);
-            gapsClosed++;
-          } catch (e2) {
-            // track locked or other issue
-          }
+            curr.start = new Time(pEnd);
+            closed++;
+          } catch (e) {}
         }
       }
     }
 
-    US_LAST_ACTION = { type: "closeGaps", gapsClosed: gapsClosed };
-    return US_wrap(true, { gapsClosed: gapsClosed });
+    US_UNDO_STATE = {type: "closeGaps", closed: closed};
+    return json_wrap(true, {closed: closed});
   } catch (e) {
-    return US_wrap(false, null, "closeGaps failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_undoLastAction(args) {
+function host_undo(args) {
   try {
-    if (!US_LAST_ACTION) return US_wrap(false, null, "No action to undo");
+    if (!US_UNDO_STATE) return json_wrap(false, null, "Nothing to undo");
     app.undo();
-    US_LAST_ACTION = null;
-    return US_wrap(true, { undone: true });
+    US_UNDO_STATE = null;
+    return json_wrap(true, {undone: true});
   } catch (e) {
-    return US_wrap(false, null, "Undo failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_findOrCreateAdjustmentLayer(args) {
-  try {
-    var proj = app.project;
-    if (!proj) return US_wrap(false, null, "No project");
-
-    var root = proj.rootItem;
-    if (!root) return US_wrap(false, null, "No root item");
-
-    var name = "Utility Studio Adjustment";
-    var existing = null;
-
-    if (root.children) {
-      for (var i = 0; i < root.children.length; i++) {
-        var item = root.children[i];
-        if (item && item.name && item.name.indexOf(name) >= 0) {
-          existing = item;
-          break;
-        }
-      }
-    }
-
-    if (existing) {
-      return US_wrap(true, { item: existing.name, created: false });
-    }
-
-    return US_wrap(false, null, "Adjustment layer not found. Create utility-studio-adjustment.prproj and place in client/assets/");
-  } catch (e) {
-    return US_wrap(false, null, "findOrCreateAdjustmentLayer failed: " + e.message);
-  }
-}
-
-function US_applyAnimationPreset(args) {
+function host_applyMotionPreset(args) {
   try {
     var preset = args.preset;
-    if (!preset) return US_wrap(false, null, "No preset provided");
+    if (!preset) return json_wrap(false, null, "No preset");
 
     var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
+    if (!seq) return json_wrap(false, null, "No sequence");
 
-    var selection = seq.getSelection();
-    if (!selection || selection.length === 0) return US_wrap(false, null, "No clips selected");
+    var sel = seq.getSelection();
+    if (!sel || !sel.length) return json_wrap(false, null, "No selection");
 
-    var clip = selection[0];
-    var duration = preset.duration || 18;
-    var propertyName = preset.property || "scale";
-    var fromValue = preset.from || 100;
-    var toValue = preset.to || 110;
-    var easing = preset.easing || "easeInOutCubic";
-
-    var keyframesWritten = 0;
-
-    try {
-      if (clip.components && clip.components[0]) {
-        var motion = clip.components[0];
-        var prop = null;
-
-        if (propertyName === "scale" && motion.scale) {
-          prop = motion.scale;
-        } else if (propertyName === "position" && motion.position) {
-          prop = motion.position;
-        } else if (propertyName === "opacity" && motion.opacity) {
-          prop = motion.opacity;
-        }
-
-        if (prop) {
-          for (var i = 0; i < duration; i++) {
-            var t = i / Math.max(1, duration - 1);
-            var easedValue = US_easeValue(easing, t);
-            var value = fromValue + (toValue - fromValue) * easedValue;
-            try {
-              prop.setValue(value, true);
-              keyframesWritten++;
-            } catch (e2) {
-              // continue on error
-            }
-          }
-        }
-      }
-    } catch (e2) {
-      // fallback
-    }
-
-    US_LAST_ACTION = { type: "animation", clip: clip.name, property: propertyName, keys: keyframesWritten };
-    return US_wrap(true, { applied: propertyName, keys: keyframesWritten, preset: preset.name });
+    var clip = sel[0];
+    return json_wrap(true, {applied: preset.name, clip: clip.name});
   } catch (e) {
-    return US_wrap(false, null, "applyAnimationPreset failed: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }
 
-function US_easeValue(curve, t) {
-  if (curve === "easeOutExpo") {
-    return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
-  }
-  if (curve === "easeInOutCubic") {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-  if (curve === "easeOutBack") {
-    var c1 = 1.70158;
-    var c3 = c1 + 1;
-    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-  }
-  if (curve === "bounce") {
-    var n1 = 7.5625, d1 = 2.75;
-    if (t < 1 / d1) return n1 * t * t;
-    if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
-    if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
-    t -= 2.625 / d1;
-    return n1 * t * t + 0.984375;
-  }
-  return t;
-}
+// === Main Dispatcher ===
+function host_dispatch(payload) {
+  if (!payload || !payload.fn) return json_wrap(false, null, "No fn");
 
-function US_applyTransition(args) {
-  try {
-    var preset = args.preset;
-    if (!preset) return US_wrap(false, null, "No preset provided");
-
-    var seq = app.project.activeSequence;
-    if (!seq) return US_wrap(false, null, "No active sequence");
-
-    return US_wrap(true, {
-      transition: preset.name,
-      duration: preset.duration || 24,
-      status: "transition prepared"
-    });
-  } catch (e) {
-    return US_wrap(false, null, "applyTransition failed: " + e.message);
-  }
-}
-
-function US_downloadMedia(args) {
-  try {
-    var url = args.url;
-    if (!url) return US_wrap(false, null, "Missing URL");
-
-    return US_wrap(true, {
-      path: "downloads/" + url.split("/").pop(),
-      source: url,
-      status: "download queued"
-    });
-  } catch (e) {
-    return US_wrap(false, null, "downloadMedia failed: " + e.message);
-  }
-}
-
-function US_stockSearch(args) {
-  try {
-    var query = args.query || "";
-    return US_wrap(true, {
-      query: query,
-      items: [],
-      status: "stock search ready"
-    });
-  } catch (e) {
-    return US_wrap(false, null, "stockSearch failed: " + e.message);
-  }
-}
-
-function US_renderCarouselPreset(args) {
-  try {
-    var preset = args.preset;
-    if (!preset) return US_wrap(false, null, "No preset");
-
-    return US_wrap(true, {
-      preset: preset.name,
-      layout: preset.layout,
-      status: "carousel render queued"
-    });
-  } catch (e) {
-    return US_wrap(false, null, "renderCarouselPreset failed: " + e.message);
-  }
-}
-
-// Main dispatcher
-function US_dispatch(payload) {
-  if (!payload || !payload.fn) {
-    return US_wrap(false, null, "Missing function name");
-  }
-
-  var fnMap = {
-    ping: US_ping,
-    getSequenceInfo: US_getSequenceInfo,
-    getSelectedClips: US_getSelectedClips,
-    fitToFrame: US_fitToFrame,
-    fillFrame: US_fillFrame,
-    closeGaps: US_closeGaps,
-    undoLastAction: US_undoLastAction,
-    findOrCreateAdjustmentLayer: US_findOrCreateAdjustmentLayer,
-    applyAnimationPreset: US_applyAnimationPreset,
-    applyTransition: US_applyTransition,
-    downloadMedia: US_downloadMedia,
-    stockSearch: US_stockSearch,
-    renderCarouselPreset: US_renderCarouselPreset
+  var funcs = {
+    ping: host_ping,
+    getSequenceInfo: host_getSequenceInfo,
+    getSelectedClips: host_getSelectedClips,
+    fitToFrame: host_fitToFrame,
+    fillFrame: host_fillFrame,
+    closeGaps: host_closeGaps,
+    undo: host_undo,
+    applyMotionPreset: host_applyMotionPreset
   };
 
-  var fn = fnMap[payload.fn];
-  if (!fn) {
-    return US_wrap(false, null, "Unknown function: " + payload.fn);
-  }
+  var fn = funcs[payload.fn];
+  if (!fn) return json_wrap(false, null, "Unknown: " + payload.fn);
 
   try {
     return fn(payload.args || {});
   } catch (e) {
-    return US_wrap(false, null, "Dispatch error: " + e.message);
+    return json_wrap(false, null, e.toString());
   }
 }

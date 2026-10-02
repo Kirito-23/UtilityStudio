@@ -1,102 +1,73 @@
-(function () {
-  function setStatus(text, kind) {
-    var node = document.getElementById("statusText");
-    if (!node) return;
-    node.textContent = text;
-    if (kind === "error") node.style.color = "#d65a5a";
-    else if (kind === "success") node.style.color = "#5dbd7e";
-    else if (kind === "warning") node.style.color = "#d7a63c";
-    else node.style.color = "#b8b8b8";
-  }
+(function() {
+  var UI = {
+    fit: function() {
+      var res = call_host("fitToFrame", {});
+      if (!res.ok) {
+        status_text(res.error, "error");
+        return;
+      }
+      status_text("Fit to Frame: " + res.payload.applied + " clip(s)", "success");
+    },
 
-  function fitToFrame() {
-    var result = call("fitToFrame", {});
-    if (!result || !result.ok) {
-      setStatus(result && result.error ? result.error : "Fit to Frame failed", "error");
-      return;
+    fill: function() {
+      var res = call_host("fillFrame", {});
+      if (!res.ok) {
+        status_text(res.error, "error");
+        return;
+      }
+      status_text("Fill Frame: " + res.payload.applied + " clip(s)", "success");
+    },
+
+    gaps: function() {
+      var res = call_host("closeGaps", {});
+      if (!res.ok) {
+        status_text(res.error, "error");
+        return;
+      }
+      status_text("Closed " + res.payload.closed + " gap(s)", "success");
+    },
+
+    undo: function() {
+      var res = call_host("undo", {});
+      if (!res.ok) {
+        status_text(res.error, "error");
+        return;
+      }
+      status_text("Action undone", "success");
+    },
+
+    showLog: function() {
+      var log = get_log();
+      var win = window.open();
+      win.document.write("<pre style='font-size:11px;font-family:monospace;'>" + log.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</pre>");
+      win.document.close();
     }
-    var applied = result.payload && result.payload.applied ? result.payload.applied : 0;
-    setStatus("Fit to Frame: " + applied + " clip(s) applied", "success");
-  }
+  };
 
-  function fillFrame() {
-    var result = call("fillFrame", {});
-    if (!result || !result.ok) {
-      setStatus(result && result.error ? result.error : "Fill Frame failed", "error");
-      return;
-    }
-    var applied = result.payload && result.payload.applied ? result.payload.applied : 0;
-    setStatus("Fill Frame: " + applied + " clip(s) applied", "success");
-  }
+  window.addEventListener("DOMContentLoaded", function() {
+    init_panel();
 
-  function closeGaps() {
-    var result = call("closeGaps", {});
-    if (!result || !result.ok) {
-      setStatus(result && result.error ? result.error : "Close Gaps failed", "error");
-      return;
-    }
-    var closed = result.payload && result.payload.gapsClosed ? result.payload.gapsClosed : 0;
-    setStatus("Closed " + closed + " gap(s)", "success");
-  }
-
-  function undoLastAction() {
-    var result = call("undoLastAction", {});
-    if (!result || !result.ok) {
-      setStatus(result && result.error ? result.error : "Undo failed", "error");
-      return;
-    }
-    setStatus("Action undone", "success");
-  }
-
-  function showLog() {
-    var log = getLog();
-    alert("Utility Studio Log:\n\n" + log);
-  }
-
-  function wireToolButtons() {
-    var fitBtn = document.querySelector('[data-action="fit"]');
-    if (fitBtn) {
-      fitBtn.addEventListener("click", fitToFrame);
+    var buttons = document.querySelectorAll("[data-action]");
+    for (var i = 0; i < buttons.length; i++) {
+      var btn = buttons[i];
+      var action = btn.getAttribute("data-action");
+      if (UI[action]) {
+        btn.addEventListener("click", UI[action]);
+      }
     }
 
-    var fillBtn = document.querySelector('[data-action="fill"]');
-    if (fillBtn) {
-      fillBtn.addEventListener("click", fillFrame);
-    }
-
-    var gapsBtn = document.querySelector('[data-action="gaps"]');
-    if (gapsBtn) {
-      gapsBtn.addEventListener("click", closeGaps);
-    }
-
-    var undoBtn = document.querySelector('[data-action="undo"]');
-    if (undoBtn) {
-      undoBtn.addEventListener("click", undoLastAction);
-    }
-
-    var logBtn = document.querySelector('[data-action="log"]');
-    if (logBtn) {
-      logBtn.addEventListener("click", showLog);
-    }
-
-    var searchInput = document.getElementById("searchInput");
-    if (searchInput) {
-      searchInput.addEventListener("input", function () {
+    var search = document.getElementById("searchInput");
+    if (search) {
+      search.addEventListener("input", function() {
         var q = this.value.toLowerCase();
-        var buttons = document.querySelectorAll(".tool");
-        for (var i = 0; i < buttons.length; i += 1) {
-          var text = buttons[i].textContent.toLowerCase();
-          buttons[i].style.display = text.indexOf(q) >= 0 || q === "" ? "" : "none";
+        var tools = document.querySelectorAll(".tool");
+        for (var i = 0; i < tools.length; i++) {
+          var show = tools[i].textContent.toLowerCase().indexOf(q) >= 0 || q === "";
+          tools[i].style.display = show ? "" : "none";
         }
       });
     }
-  }
 
-  function start() {
-    checkBuild();
-    wireToolButtons();
-    setStatus("Ready", "success");
-  }
-
-  window.addEventListener("DOMContentLoaded", start);
+    status_text("Ready", "success");
+  });
 }());
