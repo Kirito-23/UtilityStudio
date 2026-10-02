@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Utility Studio</title>
+    <link rel="stylesheet" href="./css/studio.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">Utility Studio</div>
+        <button id="flyoutBtn" class="icon-btn" type="button">☰</button>
+      </header>
+
+      <div id="staleBanner" class="stale-banner hidden">
+        Host script is stale. Fully restart Premiere.
+      </div>
+
+      <div class="search-wrap">
+        <input id="searchInput" type="text" placeholder="Search tools" />
+      </div>
+
+      <div class="pin-strip" id="pinStrip">
+        <button class="pin-btn" type="button" data-tool="fit">Fit</button>
+        <button class="pin-btn" type="button" data-tool="fill">Fill</button>
+        <button class="pin-btn" type="button" data-tool="gaps">Gaps</button>
+        <button class="pin-btn" type="button" data-tool="paste">Paste</button>
+      </div>
+
+      <main id="sectionRoot" class="section-root">
+        <section class="tool-section">
+          <h3>Media</h3>
+          <button class="tool" data-tool="paste">Paste from Clipboard</button>
+          <button class="tool" data-tool="stock">Stock Media</button>
+          <button class="tool" data-tool="download">Download Media</button>
+        </section>
+
+        <section class="tool-section">
+          <h3>Timeline</h3>
+          <button class="tool" data-tool="fit">Fit to Frame</button>
+          <button class="tool" data-tool="fill">Fill Frame</button>
+          <button class="tool" data-tool="gaps">Collapse All Gaps</button>
+        </section>
+
+        <section class="tool-section">
+          <h3>Motion</h3>
+          <button class="tool" data-tool="motion">Motion Curves</button>
+          <button class="tool" data-tool="transform">Transform</button>
+        </section>
+
+        <section class="tool-section">
+          <h3>Transitions</h3>
+          <button class="tool" data-tool="transition">Transition Library</button>
+        </section>
+
+        <section class="tool-section">
+          <h3>Creative</h3>
+          <button class="tool" data-tool="carousel">3D Carousel</button>
+        </section>
+      </main>
+
+      <div id="presetList" class="preset-list"></div>
+
+      <footer class="footer">
+        <div id="statusText">Ready</div>
+        <div id="buildText">build 0.1.0</div>
+      </footer>
+    </div>
+
+    <script src="./js/cs.js"></script>
+    <script src="./js/theme.js"></script>
+    <script src="./js/presets.js"></script>
+    <script src="./js/motion.js"></script>
+    <script src="./js/media.js"></script>
+    <script src="./js/carousel.js"></script>
+    <script src="./js/app.js"></script>
+  </body>
+</html>

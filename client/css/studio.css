@@ -1,0 +1,146 @@
+:root {
+  --bg: #1d1d1d;
+  --panel: #2a2a2a;
+  --panel-strong: #333333;
+  --line: #4a4a4a;
+  --text: #e6e6e6;
+  --muted: #b8b8b8;
+  --accent: #4c9dff;
+  --error: #d65a5a;
+  --warning: #d7a63c;
+  --success: #5dbd7e;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 12px;
+}
+
+body {
+  min-width: 200px;
+  min-height: 120px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand {
+  font-weight: 600;
+}
+
+.icon-btn, .tool, .pin-btn {
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--text);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.pin-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pin-btn {
+  padding: 4px 8px;
+  min-height: 24px;
+}
+
+.search-wrap {
+  padding: 6px 8px 2px 8px;
+}
+
+.search-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 0 8px;
+}
+
+.tool-section {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool-section h3 {
+  margin: 0 0 6px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tool {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+}
+
+.tool:hover, .pin-btn:hover, .icon-btn:hover {
+  border-color: var(--accent);
+}
+
+.stale-banner {
+  background: var(--error);
+  color: white;
+  padding: 6px 8px;
+  font-weight: 600;
+  display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.preset-list {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 6px 8px;
+  background: var(--panel);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+#statusText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
